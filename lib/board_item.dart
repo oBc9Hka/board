@@ -133,6 +133,10 @@ class BoardItemState extends State<BoardItem>
         widget.boardList!.setState(() {});
       }
       boardView.draggedItemIndex = widget.index;
+      boardView.markAnimatedPlaceholderIndex(widget.index);
+      boardView
+        ..dxInit = null
+        ..dyInit = null;
       boardView.height = context.size!.height;
       boardView.draggedWidth = width ?? context.size!.width;
       boardView.draggedListIndex = widget.boardList!.widget.index;
@@ -241,9 +245,6 @@ class BoardItemState extends State<BoardItem>
         childWhenDragging: Opacity(opacity: 0.0, child: child),
         onDragStarted: startNativeDrag,
         onDragUpdate: updateNativeDrag,
-        onDragEnd: (_) {
-          boardView.useNativeDragFeedback = false;
-        },
         child: child,
       );
     }
@@ -254,9 +255,6 @@ class BoardItemState extends State<BoardItem>
       childWhenDragging: Opacity(opacity: 0.0, child: child),
       onDragStarted: startNativeDrag,
       onDragUpdate: updateNativeDrag,
-      onDragEnd: (_) {
-        boardView.useNativeDragFeedback = false;
-      },
       child: child,
     );
   }

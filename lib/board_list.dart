@@ -170,9 +170,6 @@ class BoardListState extends State<BoardList>
         childWhenDragging: Opacity(opacity: 0.0, child: child),
         onDragStarted: startNativeDrag,
         onDragUpdate: updateNativeDrag,
-        onDragEnd: (_) {
-          boardView.useNativeDragFeedback = false;
-        },
         child: child,
       );
     }
@@ -189,15 +186,63 @@ class BoardListState extends State<BoardList>
       childWhenDragging: Opacity(opacity: 0.0, child: child),
       onDragStarted: startNativeDrag,
       onDragUpdate: updateNativeDrag,
-      onDragEnd: (_) {
-        boardView.useNativeDragFeedback = false;
-      },
       child: child,
     );
   }
 
   @override
   bool get wantKeepAlive => true;
+
+  Widget _buildItemShadowPlaceholder(Widget originalItem) {
+    final boardView = widget.boardView!;
+    Widget placeholderChild = originalItem;
+    if (originalItem is BoardItem) {
+      placeholderChild = originalItem.item ?? const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      key: const ValueKey<String>('drag-placeholder'),
+      width: double.infinity,
+      child: Opacity(
+        opacity: boardView.widget.shadowOpacity,
+        child: placeholderChild,
+      ),
+    );
+  }
+
+  Widget _buildAnimatedSlot({
+    required int index,
+    required Widget child,
+    required bool isPlaceholder,
+  }) {
+    final boardView = widget.boardView!;
+    final shouldAnimate = isPlaceholder || boardView.animatedPlaceholderItemIndex == index;
+
+    if (!shouldAnimate) {
+      return child;
+    }
+
+    return AnimatedSize(
+      duration: boardView.widget.shadowAnimationDuration,
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: AnimatedSwitcher(
+        duration: boardView.widget.shadowAnimationDuration,
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (widget, animation) => FadeTransition(
+          opacity: animation,
+          child: widget,
+        ),
+        child: isPlaceholder
+            ? _buildItemShadowPlaceholder(child)
+            : KeyedSubtree(
+                key: const ValueKey<String>('regular-item'),
+                child: child,
+              ),
+      ),
+    );
+  }
 
   Widget _itemBuilder(ctx, index) {
     if (widget.items![index].boardList == null ||
@@ -219,16 +264,15 @@ class BoardListState extends State<BoardList>
         hoverDecorationDuration: widget.items![index].hoverDecorationDuration,
       );
     }
-    if (widget.boardView!.draggedItemIndex == index &&
+    final isDraggedItemInThisList = widget.boardView!.draggedItemIndex == index &&
         widget.boardView!.draggedListIndex == widget.index &&
-        widget.boardView!.isDragOverlayReady) {
-      return Opacity(
-        opacity: 0.0,
-        child: widget.items![index],
-      );
-    } else {
-      return widget.items![index];
-    }
+        widget.boardView!.isDragging;
+
+    return _buildAnimatedSlot(
+      index: index,
+      child: widget.items![index],
+      isPlaceholder: isDraggedItemInThisList,
+    );
   }
 
   @override

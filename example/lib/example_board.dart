@@ -70,6 +70,8 @@ class _ExampleBoardState extends State<ExampleBoard> {
     return BoardView(
       lists: lists,
       boardViewController: boardViewController,
+      shadowOpacity: 0.3,
+      shadowAnimationDuration: const Duration(milliseconds: 150),
     );
   }
 

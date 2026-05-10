@@ -2,6 +2,7 @@ library flutter_boardview;
 
 import 'dart:core';
 
+import 'package:flutter_boardview/board_item.dart';
 import 'package:flutter_boardview/board_list.dart';
 import 'package:flutter_boardview/boardview_controller.dart';
 import 'package:flutter/foundation.dart';
@@ -22,6 +23,8 @@ class BoardView extends StatefulWidget {
   final Function(bool)? itemInMiddleWidget;
   final OnDropBottomWidget? onDropItemInMiddleWidget;
   final ScrollController? scrollController;
+  final double shadowOpacity;
+  final Duration shadowAnimationDuration;
 
   BoardView({
     Key? key,
@@ -35,6 +38,8 @@ class BoardView extends StatefulWidget {
     this.middleWidget,
     this.bottomPadding,
     this.scrollController,
+    this.shadowOpacity = 0.3,
+    this.shadowAnimationDuration = const Duration(milliseconds: 150),
     bool? immediateMouseDrag,
   })  : immediateMouseDrag = immediateMouseDrag ?? kIsWeb,
         super(key: key);
@@ -89,6 +94,7 @@ class BoardViewState extends State<BoardView>
   bool isScrolling = false;
 
   bool _isInWidget = false;
+  int? _lastAnimatedItemIndex;
 
   final GlobalKey _middleWidgetKey = GlobalKey();
 
@@ -108,6 +114,12 @@ class BoardViewState extends State<BoardView>
   bool get isDragging =>
       draggedItem != null || draggedListIndex != null || draggedItemIndex != null;
 
+  int? get animatedPlaceholderItemIndex => _lastAnimatedItemIndex;
+
+  void markAnimatedPlaceholderIndex(int? index) {
+    _lastAnimatedItemIndex = index;
+  }
+
   @override
   bool get wantKeepAlive => true;
 
@@ -121,6 +133,7 @@ class BoardViewState extends State<BoardView>
   }
 
   void moveDown() {
+    _lastAnimatedItemIndex = draggedItemIndex;
     if (topItemY != null) {
       topItemY = topItemY! +
           listStates[draggedListIndex!]
@@ -139,6 +152,7 @@ class BoardViewState extends State<BoardView>
     listStates[draggedListIndex!].itemStates.removeAt(draggedItemIndex!);
     if (draggedItemIndex != null) {
       draggedItemIndex = draggedItemIndex! + 1;
+      _lastAnimatedItemIndex = draggedItemIndex;
     }
     widget.lists![draggedListIndex!].items!.insert(draggedItemIndex!, item);
     listStates[draggedListIndex!]
@@ -150,6 +164,7 @@ class BoardViewState extends State<BoardView>
   }
 
   void moveUp() {
+    _lastAnimatedItemIndex = draggedItemIndex;
     if (topItemY != null) {
       topItemY = topItemY! -
           listStates[draggedListIndex!]
@@ -168,6 +183,7 @@ class BoardViewState extends State<BoardView>
     listStates[draggedListIndex!].itemStates.removeAt(draggedItemIndex!);
     if (draggedItemIndex != null) {
       draggedItemIndex = draggedItemIndex! - 1;
+      _lastAnimatedItemIndex = draggedItemIndex;
     }
     widget.lists![draggedListIndex!].items!.insert(draggedItemIndex!, item);
     listStates[draggedListIndex!]
@@ -195,14 +211,16 @@ class BoardViewState extends State<BoardView>
           .animateTo(draggedListIndex! * widget.width,
               duration: const Duration(milliseconds: 400), curve: Curves.ease)
           .whenComplete(() {
-        RenderBox object =
-            listStates[tempListIndex!].context.findRenderObject() as RenderBox;
+        final listState = _safeListState(tempListIndex);
+        if (listState == null) {
+          _scheduleCanDragRestore();
+          return;
+        }
+        RenderBox object = listState.context.findRenderObject() as RenderBox;
         Offset pos = object.localToGlobal(Offset.zero);
         leftListX = pos.dx;
         rightListX = pos.dx + object.size.width;
-        Future.delayed(Duration(milliseconds: widget.dragDelay), () {
-          canDrag = true;
-        });
+        _scheduleCanDragRestore();
       });
     }
     if (mounted) {
@@ -239,6 +257,7 @@ class BoardViewState extends State<BoardView>
       }
     }
     widget.lists![draggedListIndex!].items!.insert(draggedItemIndex!, item);
+    _lastAnimatedItemIndex = draggedItemIndex;
     listStates[draggedListIndex!]
         .itemStates
         .insert(draggedItemIndex!, itemState);
@@ -253,21 +272,25 @@ class BoardViewState extends State<BoardView>
           .animateTo(draggedListIndex! * widget.width,
               duration: const Duration(milliseconds: 400), curve: Curves.ease)
           .whenComplete(() {
-        RenderBox object =
-            listStates[tempListIndex!].context.findRenderObject() as RenderBox;
+        final listState = _safeListState(tempListIndex);
+        if (listState == null) {
+          _scheduleCanDragRestore();
+          return;
+        }
+        RenderBox object = listState.context.findRenderObject() as RenderBox;
         Offset pos = object.localToGlobal(Offset.zero);
         leftListX = pos.dx;
         rightListX = pos.dx + object.size.width;
-        RenderBox box = listStates[tempListIndex]
-            .itemStates[tempItemIndex!]
-            .context
-            .findRenderObject() as RenderBox;
+        final itemState = _safeItemState(tempListIndex, tempItemIndex);
+        if (itemState == null) {
+          _scheduleCanDragRestore();
+          return;
+        }
+        RenderBox box = itemState.context.findRenderObject() as RenderBox;
         Offset itemPos = box.localToGlobal(Offset.zero);
         topItemY = itemPos.dy;
         bottomItemY = itemPos.dy + box.size.height;
-        Future.delayed(Duration(milliseconds: widget.dragDelay), () {
-          canDrag = true;
-        });
+        _scheduleCanDragRestore();
       });
     }
     if (mounted) {
@@ -293,14 +316,16 @@ class BoardViewState extends State<BoardView>
               duration: Duration(milliseconds: widget.dragDelay),
               curve: Curves.ease)
           .whenComplete(() {
-        RenderBox object =
-            listStates[tempListIndex!].context.findRenderObject() as RenderBox;
+        final listState = _safeListState(tempListIndex);
+        if (listState == null) {
+          _scheduleCanDragRestore();
+          return;
+        }
+        RenderBox object = listState.context.findRenderObject() as RenderBox;
         Offset pos = object.localToGlobal(Offset.zero);
         leftListX = pos.dx;
         rightListX = pos.dx + object.size.width;
-        Future.delayed(Duration(milliseconds: widget.dragDelay), () {
-          canDrag = true;
-        });
+        _scheduleCanDragRestore();
       });
     }
     if (mounted) {
@@ -337,6 +362,7 @@ class BoardViewState extends State<BoardView>
       }
     }
     widget.lists![draggedListIndex!].items!.insert(draggedItemIndex!, item);
+    _lastAnimatedItemIndex = draggedItemIndex;
     listStates[draggedListIndex!]
         .itemStates
         .insert(draggedItemIndex!, itemState);
@@ -351,21 +377,25 @@ class BoardViewState extends State<BoardView>
           .animateTo(draggedListIndex! * widget.width,
               duration: const Duration(milliseconds: 400), curve: Curves.ease)
           .whenComplete(() {
-        RenderBox object =
-            listStates[tempListIndex!].context.findRenderObject() as RenderBox;
+        final listState = _safeListState(tempListIndex);
+        if (listState == null) {
+          _scheduleCanDragRestore();
+          return;
+        }
+        RenderBox object = listState.context.findRenderObject() as RenderBox;
         Offset pos = object.localToGlobal(Offset.zero);
         leftListX = pos.dx;
         rightListX = pos.dx + object.size.width;
-        RenderBox box = listStates[tempListIndex]
-            .itemStates[tempItemIndex!]
-            .context
-            .findRenderObject() as RenderBox;
+        final itemState = _safeItemState(tempListIndex, tempItemIndex);
+        if (itemState == null) {
+          _scheduleCanDragRestore();
+          return;
+        }
+        RenderBox box = itemState.context.findRenderObject() as RenderBox;
         Offset itemPos = box.localToGlobal(Offset.zero);
         topItemY = itemPos.dy;
         bottomItemY = itemPos.dy + box.size.height;
-        Future.delayed(Duration(milliseconds: widget.dragDelay), () {
-          canDrag = true;
-        });
+        _scheduleCanDragRestore();
       });
     }
     if (mounted) {
@@ -729,31 +759,7 @@ class BoardViewState extends State<BoardView>
               onDropList!(tempDraggedListIndex);
             }
           }
-          draggedItem = null;
-          offsetX = null;
-          offsetY = null;
-          dragAnchorX = null;
-          dragAnchorY = null;
-          draggedWidth = null;
-          useNativeDragFeedback = false;
-          initialX = null;
-          initialY = null;
-          dx = null;
-          dy = null;
-          draggedItemIndex = null;
-          draggedListIndex = null;
-          onDropItem = null;
-          onDropList = null;
-          dxInit = null;
-          dyInit = null;
-          leftListX = null;
-          rightListX = null;
-          topListY = null;
-          bottomListY = null;
-          topItemY = null;
-          bottomItemY = null;
-          startListIndex = null;
-          startItemIndex = null;
+          _clearDragState();
           if (mounted) {
             setState(() {});
           }
@@ -834,5 +840,69 @@ class BoardViewState extends State<BoardView>
     }
     dragAnchorX = dx! - initialX!;
     dragAnchorY = dy! - initialY!;
+  }
+
+  void _clearDragState() {
+    draggedItem = null;
+    offsetX = null;
+    offsetY = null;
+    dragAnchorX = null;
+    dragAnchorY = null;
+    draggedWidth = null;
+    useNativeDragFeedback = false;
+    initialX = null;
+    initialY = null;
+    dx = null;
+    dy = null;
+    draggedItemIndex = null;
+    draggedListIndex = null;
+    onDropItem = null;
+    onDropList = null;
+    dxInit = null;
+    dyInit = null;
+    leftListX = null;
+    rightListX = null;
+    topListY = null;
+    bottomListY = null;
+    topItemY = null;
+    bottomItemY = null;
+    startListIndex = null;
+    startItemIndex = null;
+    _lastAnimatedItemIndex = null;
+  }
+
+  BoardListState? _safeListState(int? index) {
+    if (!mounted || index == null || index < 0 || index >= listStates.length) {
+      return null;
+    }
+    final listState = listStates[index];
+    if (!listState.mounted) {
+      return null;
+    }
+    return listState;
+  }
+
+  BoardItemState? _safeItemState(int? listIndex, int? itemIndex) {
+    final listState = _safeListState(listIndex);
+    if (listState == null ||
+        itemIndex == null ||
+        itemIndex < 0 ||
+        itemIndex >= listState.itemStates.length) {
+      return null;
+    }
+    final itemState = listState.itemStates[itemIndex];
+    if (!itemState.mounted) {
+      return null;
+    }
+    return itemState;
+  }
+
+  void _scheduleCanDragRestore() {
+    Future.delayed(Duration(milliseconds: widget.dragDelay), () {
+      if (!mounted) {
+        return;
+      }
+      canDrag = true;
+    });
   }
 }
