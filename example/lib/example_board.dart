@@ -74,20 +74,35 @@ class _ExampleBoardState extends State<ExampleBoard> {
   }
 
   Widget buildBoardItem(BoardItemModel itemObject) {
+    final scheme = Theme.of(context).colorScheme;
     return BoardItem(
-        draggable: true,
-        onStartDragItem:
-            (int? listIndex, int? itemIndex, BoardItemState? state) {},
-        onDropItem: (int? listIndex, int? itemIndex, int? oldListIndex,
-            int? oldItemIndex, BoardItemState? state) {
-          //Used to update our local item data
-          var item = _listData[oldListIndex!].items[oldItemIndex!];
-          _listData[oldListIndex].items.removeAt(oldItemIndex);
-          _listData[listIndex!].items.insert(itemIndex!, item);
-        },
-        onTapItem:
-            (int? listIndex, int? itemIndex, BoardItemState? state) async {},
-        item: BoardCard(item: itemObject, onTap: _handleCardTap));
+      draggable: true,
+      itemDecoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
+      itemHoverDecoration: BoxDecoration(
+        color: scheme.primary.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      onStartDragItem:
+          (int? listIndex, int? itemIndex, BoardItemState? state) {},
+      onDropItem: (
+        int? listIndex,
+        int? itemIndex,
+        int? oldListIndex,
+        int? oldItemIndex,
+        BoardItemState? state,
+      ) {
+        //Used to update our local item data
+        var item = _listData[oldListIndex!].items[oldItemIndex!];
+        _listData[oldListIndex].items.removeAt(oldItemIndex);
+        _listData[listIndex!].items.insert(itemIndex!, item);
+      },
+      onTapItem:
+          (int? listIndex, int? itemIndex, BoardItemState? state) async {},
+      item: BoardCard(
+        item: itemObject,
+        onTap: _handleCardTap,
+      ),
+    );
   }
 
   Widget _createBoardList(BoardListModel list) {

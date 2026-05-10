@@ -16,11 +16,14 @@ class BoardView extends StatefulWidget {
   final BoardViewController? boardViewController;
   final int dragDelay;
 
+  /// When true (default on web), list items respond to immediate left-button drag with the mouse instead of requiring a long-press first.
+  final bool immediateMouseDrag;
+
   final Function(bool)? itemInMiddleWidget;
   final OnDropBottomWidget? onDropItemInMiddleWidget;
   final ScrollController? scrollController;
 
-  const BoardView({
+  BoardView({
     Key? key,
     this.itemInMiddleWidget,
     this.boardViewController,
@@ -32,7 +35,9 @@ class BoardView extends StatefulWidget {
     this.middleWidget,
     this.bottomPadding,
     this.scrollController,
-  }) : super(key: key);
+    bool? immediateMouseDrag,
+  })  : immediateMouseDrag = immediateMouseDrag ?? kIsWeb,
+        super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -56,6 +61,10 @@ class BoardViewState extends State<BoardView>
   double? dy;
   double? offsetX;
   double? offsetY;
+  double? dragAnchorX;
+  double? dragAnchorY;
+  double? draggedWidth;
+  bool useNativeDragFeedback = false;
   double? initialX = 0;
   double? initialY = 0;
   double? rightListX;
@@ -85,6 +94,19 @@ class BoardViewState extends State<BoardView>
 
   // ignore: prefer_typing_uninitialized_variables
   var pointer;
+
+  bool get isDragOverlayReady =>
+      draggedItem != null &&
+      initialX != null &&
+      initialY != null &&
+      dragAnchorX != null &&
+      dragAnchorY != null &&
+      dx != null &&
+      dy != null &&
+      height != null;
+
+  bool get isDragging =>
+      draggedItem != null || draggedListIndex != null || draggedItemIndex != null;
 
   @override
   bool get wantKeepAlive => true;
@@ -351,32 +373,13 @@ class BoardViewState extends State<BoardView>
     }
   }
 
-  bool shown = true;
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
     if (kDebugMode) {
-      print("dy:$dy");
-      print("topListY:$topListY");
-      print("bottomListY:$bottomListY");
-    }
-    if (boardViewController.hasClients) {
-      WidgetsBinding.instance.addPostFrameCallback((Duration duration) {
-        try {
-          boardViewController.position.didUpdateScrollPositionBy(0);
-        } catch (e) {
-          if (kDebugMode) {
-            print(e.toString());
-          }
-        }
-        bool scrollShown = boardViewController.position.maxScrollExtent != 0;
-        if (scrollShown != shown) {
-          setState(() {
-            shown = scrollShown;
-          });
-        }
-      });
+      // print("dy:$dy");
+      // print("topListY:$topListY");
+      // print("bottomListY:$bottomListY");
     }
     Widget listWidget = ListView.builder(
       physics: const ClampingScrollPhysics(),
@@ -394,6 +397,7 @@ class BoardViewState extends State<BoardView>
             header: widget.lists![index].header,
             boardView: this,
             draggable: widget.lists![index].draggable,
+            immediateMouseDrag: widget.lists![index].immediateMouseDrag,
             onDropList: widget.lists![index].onDropList,
             onTapList: widget.lists![index].onTapList,
             onStartDragList: widget.lists![index].onStartDragList,
@@ -410,6 +414,7 @@ class BoardViewState extends State<BoardView>
             header: widget.lists![index].header,
             boardView: this,
             draggable: widget.lists![index].draggable,
+            immediateMouseDrag: widget.lists![index].immediateMouseDrag,
             index: index,
             onDropList: widget.lists![index].onDropList,
             onTapList: widget.lists![index].onTapList,
@@ -448,13 +453,7 @@ class BoardViewState extends State<BoardView>
       widget.itemInMiddleWidget!(isInBottomWidget);
       _isInWidget = isInBottomWidget;
     }
-    if (initialX != null &&
-        initialY != null &&
-        offsetX != null &&
-        offsetY != null &&
-        dx != null &&
-        dy != null &&
-        height != null) {
+    if (isDragOverlayReady) {
       if (canDrag && dxInit != null && dyInit != null && !isInBottomWidget) {
         if (draggedItemIndex != null &&
             draggedItem != null &&
@@ -563,7 +562,7 @@ class BoardViewState extends State<BoardView>
                   .findRenderObject() as RenderBox;
               tempBottom = box.size.height;
               if (kDebugMode) {
-                print("tempBot?tom:$tempBottom");
+                // print("tempBot?tom:$tempBottom");
               }
             }
           }
@@ -668,23 +667,29 @@ class BoardViewState extends State<BoardView>
         stackWidgets
             .add(Container(key: _middleWidgetKey, child: widget.middleWidget));
       }
-      WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-        if (mounted) {
-          setState(() {});
-        }
-      });
-      stackWidgets.add(Positioned(
-        width: widget.width,
-        height: height,
-        left: (dx! - offsetX!) + initialX!,
-        top: (dy! - offsetY!) + initialY!,
-        child: Opacity(opacity: .7, child: draggedItem),
-      ));
+      if (!useNativeDragFeedback) {
+        stackWidgets.add(Positioned(
+          width: draggedWidth,
+          height: height,
+          left: dx! - dragAnchorX!,
+          top: dy! - dragAnchorY!,
+          child: Opacity(opacity: .7, child: draggedItem),
+        ));
+      }
     }
 
-    return Listener(
+    return MouseRegion(
+      cursor: isDragging && !widget.isSelecting
+          ? SystemMouseCursors.grabbing
+          : SystemMouseCursors.basic,
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
         onPointerMove: (opm) {
+          pointer = opm;
           if (draggedItem != null) {
+            if (dx == opm.position.dx && dy == opm.position.dy) {
+              return;
+            }
             dxInit ??= opm.position.dx;
             dyInit ??= opm.position.dy;
             dx = opm.position.dx;
@@ -695,14 +700,7 @@ class BoardViewState extends State<BoardView>
           }
         },
         onPointerDown: (opd) {
-          RenderBox box = context.findRenderObject() as RenderBox;
-          Offset pos = box.localToGlobal(opd.position);
-          offsetX = pos.dx;
-          offsetY = pos.dy;
           pointer = opd;
-          if (mounted) {
-            setState(() {});
-          }
         },
         onPointerUp: (opu) {
           if (onDropItem != null) {
@@ -734,6 +732,10 @@ class BoardViewState extends State<BoardView>
           draggedItem = null;
           offsetX = null;
           offsetY = null;
+          dragAnchorX = null;
+          dragAnchorY = null;
+          draggedWidth = null;
+          useNativeDragFeedback = false;
           initialX = null;
           initialY = null;
           dx = null;
@@ -756,18 +758,81 @@ class BoardViewState extends State<BoardView>
             setState(() {});
           }
         },
-        child: Stack(
-          children: stackWidgets,
-        ));
+        child: IgnorePointer(
+          ignoring: isDragging,
+          child: Stack(
+            children: stackWidgets,
+          ),
+        ),
+      ),
+    );
   }
 
   void run() {
-    if (pointer != null) {
+    if ((dx == null || dy == null) && pointer != null) {
       dx = pointer.position.dx;
       dy = pointer.position.dy;
       if (mounted) {
         setState(() {});
       }
     }
+  }
+
+  void updateDragPosition(Offset globalPointerPosition) {
+    dxInit ??= globalPointerPosition.dx;
+    dyInit ??= globalPointerPosition.dy;
+    dx = globalPointerPosition.dx;
+    dy = globalPointerPosition.dy;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void syncPointerForDragStart(PointerEvent event,
+      {Offset? dragOriginTopLeft, Offset? dragAnchor}) {
+    pointer = event;
+    beginDragFromPosition(
+      globalPointerPosition: event.position,
+      dragOriginTopLeft: dragOriginTopLeft,
+      localAnchor: dragAnchor,
+    );
+  }
+
+  void beginDragFromPosition({
+    required Offset globalPointerPosition,
+    Offset? dragOriginTopLeft,
+    Offset? localAnchor,
+  }) {
+    dx = globalPointerPosition.dx;
+    dy = globalPointerPosition.dy;
+    offsetX = globalPointerPosition.dx;
+    offsetY = globalPointerPosition.dy;
+
+    if (dragOriginTopLeft != null) {
+      initialX = dragOriginTopLeft.dx;
+      initialY = dragOriginTopLeft.dy;
+    } else {
+      initialX ??= dx;
+      initialY ??= dy;
+    }
+
+    if (localAnchor != null) {
+      dragAnchorX = localAnchor.dx;
+      dragAnchorY = localAnchor.dy;
+    } else {
+      _updateDragAnchorFromCurrentState();
+    }
+  }
+
+  void updateDragAnchorFromCurrentPointer() {
+    _updateDragAnchorFromCurrentState();
+  }
+
+  void _updateDragAnchorFromCurrentState() {
+    if (initialX == null || initialY == null || dx == null || dy == null) {
+      return;
+    }
+    dragAnchorX = dx! - initialX!;
+    dragAnchorY = dy! - initialY!;
   }
 }
